@@ -1,0 +1,141 @@
+#!/usr/bin/perl
+
+use strict;
+
+#This script will be used to perform the following:
+# 
+#Stop DenyHosts
+#Remove the IP address from /etc/hosts.deny
+#Edit WORK_DIR/hosts and remove the lines containing the IP address. Save the file.
+#Edit WORK_DIR/hosts-restricted and remove the lines containing the IP address. Save the file.
+#Edit WORK_DIR/hosts-root and remove the lines containing the IP address. Save the file.
+#Edit WORK_DIR/hosts-valid and remove the lines containing the IP address. Save the file.
+#Edit WORK_DIR/user-hosts and remove the lines containing the IP address. Save the file.
+#(optional) Consider adding the IP address to WORK_DIR/allowed-hosts
+#Start DenyHosts
+#removes any static routes from the routing table 
+
+#Files to deal with
+my $FileHostsDeny = '/etc/hosts.deny';
+my $FileHosts = '/var/lib/denyhosts/hosts';
+my $FileHostsRestricted = '/var/lib/denyhosts/hosts-restricted';
+my $FileHostsRoot = '/var/lib/denyhosts/hosts-root';
+my $FileHostsValid = '/var/lib/denyhosts/hosts-valid';
+my $FileUsersHosts = '/var/lib/denyhosts/users-hosts';
+my $FileAllowedHosts = '/var/lib/denyhosts/allowed-hosts';
+
+#Test files
+#my $Test1 = '/etc/test1.txt';
+#my $Test2 = '/var/lib/denyhosts/test2.txt';
+#my $Test3 = '/var/lib/denyhosts/test3.txt';
+#my $Test4 = '/var/lib/denyhosts/test4.txt';
+#my $Test5 = '/var/lib/denyhosts/test5.txt';
+
+#Take in IP address as argument
+my $IP_Address = shift; 
+if($IP_Address eq ""){
+  print "Please enter an IP Address\n";
+  exit 0;
+}
+chomp($IP_Address);
+my $Flag = shift;
+
+#Stop DenyHosts
+my $Command = 'service denyhosts stop';
+my ($status, $output) = executeCommand($Command);
+if($status == 0){
+  print "DenyHosts stopped\n";  
+}
+else
+{
+  print "ERROR: DenyHosts was not stopped\n";
+  exit 0;  
+}
+
+sub deleteIP {
+##############################################################################
+# Usage     : deleteIP (File, IP)
+# Purpose   : deletes lines from specified file containing IP Address 
+# Returns   : Nothing
+# Parameters: File, IP Address
+# Comments  : deleteIP($File, $IP_Address) regenerates the file without lines containing IP Address
+##############################################################################
+  my $File = $_[0];
+  my $IP = $_[1];
+  open(FILE,"<$File");
+  #Save each line of file to LINES array
+  my @LINES = <FILE>;
+  close(FILE);
+  if(grep /$IP/, @LINES){
+    print "Removing IP Address $IP from $File\n";
+    open(FILE,">$File");
+    #Loop through each line of file
+    foreach my $LINE (@LINES){
+      #Print all lines that don't have that IP address.
+      print FILE $LINE unless (index($LINE, $IP) != -1); 
+    }
+  close(FILE);
+  }
+  else{
+    print "could not find IP Address $IP in $File\n";
+    return;
+  }
+}
+
+sub executeCommand {
+###############################################################################
+# Usage     : executeCommand (command)
+# Purpose   : executes a command and returns output and status
+# Returns   : exec status, std out
+# Parameters: command
+# Comments  :  my ($status, $output) = executeCommand($command)
+#              returns (exit status of the command, any output  or errors)
+################################################################################
+    my $command = join ' ', @_;
+    reverse ($_ = qx{$command 2>&1}, $? >> 8);
+}
+
+#Call IP removing subroutine on each file
+my @array = ("$FileHostsDeny", "$FileHosts", "$FileHostsRestricted", "$FileHostsRoot", "$FileHostsValid", "$FileUsersHosts");
+
+#For testing
+#@array = ("$Test1", "$Test2", "$Test3", "$Test4");
+
+foreach (@array){
+  deleteIP($_, $IP_Address);  
+}
+
+#For appending the IP address to '/var/lib/denyhosts/allowed-hosts'
+my $File2 = $FileAllowedHosts;
+
+#For testing
+#my $File2 = $Test5;
+
+if($Flag eq '--always'){
+  open (my $fh, '>>', $File2);
+  print $fh "$IP_Address\n";
+  print "You have appended the IP Address $IP_Address to $File2\n";
+  close($fh);
+}
+
+#Start DenyHosts
+$Command = 'service denyhosts start';
+my ($status, $output) = executeCommand($Command);
+if($status == 0){
+  print "DenyHosts started\n";
+}
+else{
+  print "ERROR: DenyHosts was not started\n";
+  exit 0;
+}
+
+$Command = '/sbin/route delete $IP_Address';
+my ($status, $output) = executeCommand($Command);
+if($status == 0){
+  print "Static routes from routing table removed\n";
+}
+else{
+  print "ERROR: static routes from routing table not removed\n";
+  exit 0;
+}
+
